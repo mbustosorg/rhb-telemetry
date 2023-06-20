@@ -1,3 +1,4 @@
+import json
 from machine import Pin, PWM, I2C
 from time import sleep, time
 import network
@@ -21,8 +22,10 @@ led = Pin("LED", Pin.OUT)
 led.off()
 
 log = logging.getLogger("uosc.minimal_server")
-SSID = xxx
-PASSWORD = xxx
+
+with open("config_rhb.json") as f:
+    config = json.load(f)
+    
 MAX_DGRAM_SIZE = 1472
 
 i2c = I2C(0, scl=Pin(17), sda=Pin(16))
@@ -43,14 +46,19 @@ def toggle_startup_display(count):
         sync_text = b"\x01\x01\x01\x01"
     elif count % 6 == 1:
         sync_text = b"\x02\x02\x02\x02"
+        #sync_text = b"\x01\x01\x01\x01"
     elif count % 6 == 2:
         sync_text = b"\x04\x04\x04\x04"
+        #sync_text = b"\x02\x02\x02\x02"
     elif count % 6 == 3:
         sync_text = b"\x08\x08\x08\x08"
+        #sync_text = b"\x04\x04\x04\x04"
     elif count % 6 == 4:
         sync_text = b"\x10\x10\x10\x10"
+        #sync_text = b"\x08\x08\x08\x08"
     elif count % 6 == 5:
         sync_text = b"\x20\x20\x20\x20"
+        #sync_text = b"\x01\x10\x10\x10"
     for i in range(len(sync_text)):
         display.set_glyph(sync_text[i], i)
     display.draw()
@@ -112,7 +120,7 @@ def run_server(saddr, port, handler=handle_osc):
 def connect_to_wifi():
     while True:
         wait = 2
-        wlan.connect(SSID, PASSWORD)
+        wlan.connect(config["WIFI_SSID"], config["WIFI_PASSWORD"])
         while wait < 12:
             status = wlan.status()
             if status >= 3:
@@ -137,5 +145,6 @@ while True:
     for i in range(len(sync_text)):
         display.set_glyph(sync_text[i], i)
     display.draw()
-    #run_server("192.168.86.29", 8888)
-    run_server("192.168.1.8", 8888) # RHB
+    run_server(config["IP"], 8888)
+    
+
