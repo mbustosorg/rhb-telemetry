@@ -21,7 +21,7 @@ except ImportError:
 display: HT16K33Segment = None
 led: machine.Pin = None
 
-MAX_DGRAM_SIZE = 1472
+MAX_DGRAM_SIZE = 6000
 
 
 def reboot():
@@ -54,7 +54,7 @@ def wifi_connection(config):
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
     while True:
-        wait = 2
+        wait = 0
         wlan.connect(config["WIFI_SSID"], config["WIFI_PASSWORD"])
         while wait < 12:
             status = wlan.status()
@@ -94,14 +94,12 @@ async def run_server(saddr, port, handler):
                         break
                     elif res[1] & select.POLLIN:
                         buf, addr = sock.recvfrom(MAX_DGRAM_SIZE)
-                        handler(buf, addr)
-                print(f"OSC tick {ticks_ms()}")
+                        asyncio.create_task(handler(buf, addr))
                 led.toggle()
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.0)
             except Exception as e:
                 print(f"Exception in run_server: {e}")
                 break
         sock.close()
-        # reboot()
     except Exception as e:
-        print(f"{e}")
+        print(f"Exception in run_server top: {e}")

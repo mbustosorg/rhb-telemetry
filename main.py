@@ -21,7 +21,7 @@ from rhb_pico_utils import run_server, wifi_connection
 import rhb_pico_utils
 
 
-def handle_osc(data, src, dispatch=None, strict=False):
+async def handle_osc(data, src, dispatch=None, strict=False):
     try:
         head, _ = split_oscstr(data, 0)
         if head.startswith('/'):
@@ -34,18 +34,24 @@ def handle_osc(data, src, dispatch=None, strict=False):
         return
     try:
         for timetag, (oscaddr, tags, args) in messages:
-            bcd = int(str(int(args[0])), 16)
 
             if "pressure" in oscaddr:
+                bcd = int(str(int(args[0])), 16)
                 rhb_pico_utils.display.set_number((bcd & 0xF0) >> 4, 0)
                 rhb_pico_utils.display.set_number((bcd & 0x0F), 1)
             elif "temperature" in oscaddr and "cpu" not in oscaddr:
+                bcd = int(str(int(args[0])), 16)
                 if int(args[0]) > 100:
                     rhb_pico_utils.display.set_blink_rate(1)
                 else:
                     rhb_pico_utils.display.set_blink_rate(0)
                 rhb_pico_utils.display.set_number((bcd & 0xF0) >> 4, 2)
                 rhb_pico_utils.display.set_number((bcd & 0x0F), 3)
+            elif "water_heater" in oscaddr:
+                if int(args[0]):
+                    rhb_pico_utils.display.set_blink_rate(2)
+                else:
+                    rhb_pico_utils.display.set_blink_rate(0)
             rhb_pico_utils.display.draw()
             if __debug__:
                 print(f"{time()} OSC message : {oscaddr} {tags} {args}")
@@ -68,7 +74,7 @@ async def main_loop():
 if __name__ == "__main__":
     rhb_pico_utils.led = Pin("LED", Pin.OUT)
     rhb_pico_utils.led.off()
-    with open("config_home.json") as f:
+    with open("config_rhb.json") as f:
         config = json.load(f)
 
     i2c = I2C(0, scl=Pin(17), sda=Pin(16))
@@ -77,7 +83,7 @@ if __name__ == "__main__":
         for d in devices:
             print(f"I2C device found: {hex(d)}")
     rhb_pico_utils.display = HT16K33Segment(i2c)
-    rhb_pico_utils.display.set_brightness(15)
+    rhb_pico_utils.display.set_brightness(8)
 
     try:
         rhb_pico_utils.toggle_startup_display(1)
