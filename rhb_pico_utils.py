@@ -22,6 +22,7 @@ display: HT16K33Segment = None
 led: machine.Pin = None
 
 MAX_DGRAM_SIZE = 6000
+MINUS_GLYPH = 0x40
 
 
 def reboot():
@@ -49,10 +50,56 @@ def toggle_startup_display(count):
     display.draw()
 
 
+def set_two_digits(value, tens_digit, ones_digit):
+    """Show `value' rounded to a whole number across two digits
+
+    Senders broadcast floats, some of them unrounded, so round here rather
+    than truncate. Only 0-99 fits in two digits: peg anything higher at 99
+    (temperature blinks above 100 anyway) and show a leading minus below 0.
+    """
+    value = round(value)
+    if value < -9:
+        display.set_glyph(MINUS_GLYPH, tens_digit)
+        display.set_glyph(MINUS_GLYPH, ones_digit)
+        return
+    if value < 0:
+        display.set_glyph(MINUS_GLYPH, tens_digit)
+        display.set_number(-value, ones_digit)
+        return
+    if value > 99:
+        value = 99
+    display.set_number(value // 10, tens_digit)
+    display.set_number(value % 10, ones_digit)
+
+
 def wifi_connection(config):
-    """Connect to the wifi"""
+    """Connect to the wifi.
+
+    The rig is statically addressed, so the address comes from the config
+    rather than DHCP.  It has to match, because the OSC socket is bound to
+    config["IP"] -- a lease handing out anything else leaves the socket
+    listening on an address this device does not hold, and nothing arrives.
+    """
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
+    # Power save lets the radio doze between beacons, which delays the ARP
+    # reply the water heater's W5500 is waiting on and drops inbound UDP that
+    # arrives while it is asleep.  This board is mains powered; keep it awake.
+    try:
+        wlan.config(pm=getattr(network.WLAN, "PM_NONE", 0xA11140))
+    except Exception as e:
+        print("Could not disable wifi power save:", e)
+    if config.get("IP"):
+        octets = config["IP"].split(".")
+        gateway = config.get("GATEWAY") or ".".join(octets[:3] + ["1"])
+        wlan.ifconfig(
+            (
+                config["IP"],
+                config.get("NETMASK", "255.255.255.0"),
+                gateway,
+                config.get("DNS", gateway),
+            )
+        )
     while True:
         wait = 0
         wlan.connect(config["WIFI_SSID"], config["WIFI_PASSWORD"])
@@ -73,19 +120,33 @@ def wifi_connection(config):
     return wlan
 
 
+def format_source(src):
+    """Human readable `host:port' from a recvfrom() address
+
+    lwip hands back an (ip, port) tuple, but fall back to the raw value so a
+    packed sockaddr still logs something useful.
+    """
+    if isinstance(src, tuple):
+        return f"{src[0]}:{src[1]}"
+    return str(src)
+
+
 async def run_server(saddr, port, handler):
     """Run the OSC Server asynchronously"""
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        ai = socket.getaddrinfo(saddr, port)[0]
+        # Bind every interface.  Binding the configured address instead means
+        # that if this device ever comes up on a different one, the socket is
+        # listening where no packet can reach it and the failure is silent.
+        ai = socket.getaddrinfo("0.0.0.0", port)[0]
         sock.setblocking(False)
         sock.bind(ai[-1])
         p = select.poll()
         p.register(sock, select.POLLIN)
         poll = getattr(p, "ipoll", p.poll)
 
-        print("Listening for OSC messages on %s:%i", saddr, port)
+        print(f"Listening for OSC messages on 0.0.0.0:{port} (configured {saddr})")
         while True:
             try:
                 for res in poll(1):

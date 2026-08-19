@@ -30,35 +30,36 @@ async def handle_osc(data, src, dispatch=None, strict=False):
             messages = parse_bundle(data, strict)
     except Exception as exc:
         if __debug__:
-            print("Exception Data: %r", data)
+            print(f"Could not parse from {rhb_pico_utils.format_source(src)}: {exc} Data: {data}")
         return
     try:
         for timetag, (oscaddr, tags, args) in messages:
 
-            if "pressure" in oscaddr:
-                bcd = int(str(int(args[0])), 16)
-                rhb_pico_utils.display.set_number((bcd & 0xF0) >> 4, 0)
-                rhb_pico_utils.display.set_number((bcd & 0x0F), 1)
-            elif "temperature" in oscaddr and "cpu" not in oscaddr:
-                bcd = int(str(int(args[0])), 16)
-                if int(args[0]) > 100:
+            # Receive only.  Match the exact addresses -- a substring test also
+            # catches /water_pressure and /pressure_fine, which are not what
+            # these digits show.
+            if oscaddr == "/pressure":
+                # Accumulator pressure, owned by rhb-sensor-monitor
+                rhb_pico_utils.set_two_digits(args[0], 0, 1)
+            elif oscaddr == "/temperature":
+                # Water bath temperature, owned by rhb-water-heater
+                if args[0] > 100:
                     rhb_pico_utils.display.set_blink_rate(1)
                 else:
                     rhb_pico_utils.display.set_blink_rate(0)
-                rhb_pico_utils.display.set_number((bcd & 0xF0) >> 4, 2)
-                rhb_pico_utils.display.set_number((bcd & 0x0F), 3)
-            elif "water_heater" in oscaddr:
-                if int(args[0]):
+                rhb_pico_utils.set_two_digits(args[0], 2, 3)
+            elif oscaddr == "/water_heater":
+                if round(args[0]):
                     rhb_pico_utils.display.set_blink_rate(2)
                 else:
                     rhb_pico_utils.display.set_blink_rate(0)
             rhb_pico_utils.display.draw()
             if __debug__:
-                print(f"{time()} OSC message : {oscaddr} {tags} {args}")
+                print(f"{time()} OSC message from {rhb_pico_utils.format_source(src)} : {oscaddr} {tags} {args}")
             if dispatch:
                 dispatch(timetag, (oscaddr, tags, args, src))
     except Exception as exc:
-        print("Exception in OSC handler: %s", exc)
+        print(f"Exception in OSC handler for {rhb_pico_utils.format_source(src)}: {exc}")
 
 
 async def main_loop():
